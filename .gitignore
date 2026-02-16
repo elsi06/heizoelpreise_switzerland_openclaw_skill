@@ -1,0 +1,7 @@
+node_modules/
+.env
+data/*.db
+scripts/migrol_price_data.json
+scripts/*_dump.html
+scripts/*_text.txt
+
