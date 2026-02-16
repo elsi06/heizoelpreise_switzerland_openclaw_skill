@@ -8,7 +8,7 @@ A Node.js skill for OpenClaw that monitors heating oil prices in Switzerland fro
 - **Trend Analysis**: Calculates daily price changes (Up/Down/Stable).
 - **Persistence**: Stores price history in a local SQLite database (`data/prices.db`).
 - **Notifications**: Sends comprehensive reports to Telegram.
-- **Scheduling**: Runs automatically every day at 8:00 AM (configurable).
+- **Scheduling**: Runs automatically every day at 9:00 AM (configurable).
 - **Robustness**: Handles dynamic sites using Puppeteer with retry logic.
 
 ## Configuration
@@ -21,7 +21,7 @@ The application is configured via environment variables or `src/config.js`.
 | `AMOUNT` | `3000` | Amount in liters |
 | `TELEGRAM_TOKEN` | - | Bot token for notifications |
 | `TELEGRAM_CHAT_ID` | - | Chat ID to receive reports |
-| `CRON_SCHEDULE` | `0 8 * * *` | Cron schedule for automatic runs |
+| `CRON_SCHEDULE` | `0 9 * * *` | Cron schedule for automatic runs |
 
 ## Installation
 
