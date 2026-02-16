@@ -1,6 +1,6 @@
 # Heizoelpreise Scraper
 
-A Node.js skill for OpenClaw that monitors heating oil prices in Switzerland from three major providers. It tracks price history in a local SQLite database and sends daily trend reports via Telegram.
+A Node.js skill for OpenClaw that monitors heating oil prices in Switzerland from three major providers. It tracks price history in a local SQLite database and displays results via OpenClaw.
 
 ## Features
 
@@ -9,9 +9,7 @@ A Node.js skill for OpenClaw that monitors heating oil prices in Switzerland fro
 - **Price Calculation**: Prices are calculated based on amount in liters (per 100L pricing converted to total)
 - **Trend Analysis**: Calculates daily price changes (📈 Up / 📉 Down / ➡️ Stable)
 - **Price History**: Stores all price records in a local SQLite database (`data/prices.db`)
-- **Smart Notifications**: Sends daily reports with current prices, trends, and cheapest provider recommendation
-- **Automatic Scheduling**: Runs automatically every day at 8:00 AM (configurable via cron)
-- **Manual Trigger**: Run on-demand with `--run-now` flag
+- **OpenClaw Integration**: Results are displayed directly via OpenClaw messaging
 
 ## Configuration
 
@@ -22,19 +20,8 @@ Configuration is managed via environment variables in `.env` file or directly in
 | `ZIP_CODE` | `8000` | Swiss postal code for price queries (e.g., 8000 = Zurich) |
 | `AMOUNT` | `3000` | Amount of heating oil in liters |
 | `DB_PATH` | `data/prices.db` | Path to SQLite database |
-| `TELEGRAM_TOKEN` | - | Bot token for Telegram notifications |
-| `TELEGRAM_CHAT_ID` | - | Chat ID to receive reports |
-| `CRON_SCHEDULE` | `0 8 * * *` | Cron schedule (default: 8:00 AM daily) |
 | `LOG_LEVEL` | `info` | Logging level (debug, info, warn, error) |
 | `NODE_ENV` | `development` | Environment (development/production) |
-
-### Setting up Telegram Notifications
-
-1. Create a Telegram bot via [@BotFather](https://t.me/BotFather)
-2. Get your bot token
-3. Start a chat with your bot
-4. Get your chat ID using `@userinfobot` or the `getChatId` script in `scripts/`
-5. Add `TELEGRAM_TOKEN` and `TELEGRAM_CHAT_ID` to your `.env` file
 
 ## Installation
 
@@ -44,24 +31,23 @@ npm install
 
 ## Usage
 
-### Start the Scheduler (Production)
+### Query Prices via OpenClaw
 
-```bash
-npm start
+Simply ask OpenClaw for heating oil prices:
+
 ```
-The application will start and wait for the scheduled time (default: 8:00 AM daily).
-
-### Trigger Manual Run
-
-```bash
-npm start -- --run-now
+!heizoel [PLZ] [Liter]
 ```
-Immediately fetches prices, saves them to the database, and sends a notification.
 
-### Development Mode
+Examples:
+- `!heizoel` → Prices for PLZ 8000 (default)
+- `!heizoel 8000` → Prices for PLZ 8000
+- `!heizoel 8000 3000` → Prices for PLZ 8000, 3000 liters
+
+### Manual Run (Development)
 
 ```bash
-node src/index.js --run-now
+node src/openclaw.js 8000 3000
 ```
 
 ## Project Structure
@@ -77,16 +63,13 @@ heizoelpreise/
 │   ├── services/           # Core business logic
 │   │   ├── PriceService.js       # Orchestrates price fetching
 │   │   ├── StorageService.js     # SQLite database operations
-│   │   └── NotificationService.js # Telegram notifications
 │   ├── data/
 │   │   ├── zipCityMap.js   # Swiss ZIP to city mapping
 │   │   └── prices.db       # SQLite database (created on first run)
 │   ├── utils/
 │   │   └── logger.js       # Logging utility
 │   ├── config.js           # Configuration management
-│   └── index.js            # Entry point with cron scheduler
-├── scripts/
-│   └── getChatId.js        # Utility to get Telegram chat ID
+│   └── openclaw.js         # OpenClaw integration
 ├── .env.example            # Example environment file
 ├── package.json
 └── README.md
@@ -109,24 +92,28 @@ The SQLite database (`data/prices.db`) stores price records with the following s
 
 ## Output Example
 
-A typical Telegram report looks like:
+Results are displayed via OpenClaw:
 
 ```
-🔥 Heizöl-Preise 16.02.2026 🔥
-
+🔥 Heizöl-Preise 📊
 PLZ: 8000 | Menge: 3000L
 
-*Coop*: 266.37 CHF 📉 (-2.50)
-*Migrol*: 268.50 CHF ➡️ (0.00)
-*Agrola*: 269.10 CHF 📈 (+1.20)
+📉 *Coop*: 266.37 CHF (-2.50%)
+➡️ *Migrol*: 268.50 CHF (0.00%)
+📈 *Agrola*: 269.10 CHF (+1.20%)
 
-🏆 *Günstigster Anbieter*: Coop
+🏆 *Günstigster*: Coop (266.37 CHF)
 ```
+
+## Providers
+
+- **Coop** – Swiss supermarket
+- **Migrol** – Largest Swiss fuel dealer
+- **Agrola** – Regional provider
 
 ## Troubleshooting
 
 - **No prices extracted**: Check internet connection and ensure target websites are accessible
-- **Telegram not working**: Verify bot token and chat ID are correct
 - **Migrol fails**: Ensure ZIP code exists in `src/data/zipCityMap.js`
 - **Headless issues**: Puppeteer requires Chrome/Chromium. On some systems, install manually.
 
