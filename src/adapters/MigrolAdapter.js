@@ -1,6 +1,7 @@
 const BaseAdapter = require('./BaseAdapter');
 const puppeteer = require('puppeteer');
 const zipCityMap = require('../data/zipCityMap');
+const logger = require('../utils/logger');
 
 class MigrolAdapter extends BaseAdapter {
     constructor() {
@@ -15,7 +16,7 @@ class MigrolAdapter extends BaseAdapter {
 
         const browser = await puppeteer.launch({
             headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--no-first-run']
         });
 
         try {
@@ -28,58 +29,66 @@ class MigrolAdapter extends BaseAdapter {
                 m: amount.toString(),
                 zip: zipCode.toString(),
                 city: city,
-                c: 'HL2FN26' // Using the code observed in debugging, seems generally valid or default
+                c: 'HL2FN26'
             });
 
             const targetUrl = `${baseUrl}?${params.toString()}`;
+            logger.info(`Migrol: Loading ${targetUrl}`);
 
+            // Use waitForResponse for more reliable API capture
+            const responsePromise = page.waitForResponse(
+                response => response.url().includes('CalculatePrice') && response.status() === 200,
+                { timeout: 45000 }
+            );
+
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+            // Wait for the API response
             let priceData = null;
+            try {
+                const apiResponse = await responsePromise;
+                priceData = await apiResponse.json().catch(() => null);
+                logger.info(`Migrol: Got CalculatePrice response`);
+            } catch (e) {
+                logger.warn(`Migrol: API response wait failed: ${e.message}`);
+                // Try to extract from page content as fallback
+            }
 
-            // Intercept the API response that contains the price
-            page.on('response', async response => {
-                const url = response.url();
-                if (url.includes('CalculatePrice') && response.request().method() !== 'OPTIONS' && response.status() === 200) {
-                    try {
-                        priceData = await response.json();
-                    } catch (e) {
-                        // Ignore JSON parse errors for non-JSON responses
+            // Fallback: Try to find price in page content
+            if (!priceData || !priceData.Prices) {
+                logger.info(`Migrol: Trying fallback extraction from page`);
+                const bodyText = await page.evaluate(() => document.body.innerText);
+                const priceMatch = bodyText.match(/(\d{2,3}[.,]\d{2})\s*CHF/i);
+                if (priceMatch) {
+                    const pricePer100L = parseFloat(priceMatch[1].replace(',', '.'));
+                    if (pricePer100L > 50 && pricePer100L < 150) {
+                        // Price is per 100L - calculate total for requested amount
+                        const totalPrice = pricePer100L * (amount / 100);
+                        logger.info(`Migrol: Extracted fallback price: ${pricePer100L} × ${amount/100} = ${totalPrice}`);
+                        return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
                     }
                 }
-            });
-
-            await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-
-            // Wait a short buffer if priceData isn't caught yet
-            if (!priceData) {
-                try {
-                    await page.waitForResponse(response =>
-                        response.url().includes('CalculatePrice') && response.status() === 200,
-                        { timeout: 30000 }
-                    );
-                } catch (e) {
-                    // Check if we already have it in the listener
-                }
             }
 
-            if (!priceData) {
-                throw new Error('Migrol API CalculatePrice timed out or failed.');
+            if (!priceData || !priceData.Prices) {
+                throw new Error('Migrol: Could not extract price data');
             }
 
-            // Parse price data
-            // Structure: { Prices: [ { Material: 'Heizoel_OekoPlus', PriceType: 2 (per 100L?), Price: 88.83 }, ... ] }
-            // We prioritize 'Heizoel_OekoPlus' (standard) and PriceType 2 (unit price?)
-            // Wait, PriceType 1 is Total, PriceType 2 seems to be Unit Price?
-            // In the dump: PriceType 2 was 88.83, PriceType 1 was 2664.9 (for 3000L). 2664.9/30 = 88.83.
-            // So PriceType 2 is Price per 100L.
-
+            // Parse price data - PriceType 2 is price per 100L
             const product = priceData.Prices.find(p => p.Material === 'Heizoel_OekoPlus' && p.PriceType === 2);
 
             if (!product) {
                 throw new Error('Price for Heizoel_OekoPlus not found in response.');
             }
 
-            return this.createPriceObject(product.Price, 'CHF', zipCode, amount);
+            // Calculate total price: price per 100L × (amount / 100)
+            const totalPrice = product.Price * (amount / 100);
+            logger.info(`Migrol: ${product.Price} CHF/100L × ${amount/100} = ${totalPrice} CHF for ${amount}L`);
+            return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
 
+        } catch (error) {
+            logger.error(`Migrol error: ${error.message}`);
+            throw error;
         } finally {
             await browser.close();
         }

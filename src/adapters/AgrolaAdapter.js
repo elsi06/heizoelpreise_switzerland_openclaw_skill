@@ -1,6 +1,7 @@
 const BaseAdapter = require('./BaseAdapter');
 const puppeteer = require('puppeteer');
 const fs = require('fs'); // Keep fs for debug if needed
+const logger = require('../utils/logger');
 
 class AgrolaAdapter extends BaseAdapter {
     constructor() {
@@ -85,9 +86,11 @@ class AgrolaAdapter extends BaseAdapter {
                 let pricePer100L = parseFloat(priceStr);
 
                 // Agrola displays price per 100L directly: "je 100 Liter bei ..."
-                // So no need to divide by amount and multiply by 100 like Coop.
+                // Calculate total price: price per 100L × (amount / 100)
+                const totalPrice = pricePer100L * (amount / 100);
+                logger.info(`Agrola: ${pricePer100L} CHF/100L × ${amount/100} = ${totalPrice} CHF for ${amount}L`);
 
-                return this.createPriceObject(pricePer100L.toFixed(2), 'CHF', zipCode, amount);
+                return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
             }
 
             throw new Error('Price not found in page content (Agrola)');

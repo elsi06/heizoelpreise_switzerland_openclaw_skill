@@ -17,16 +17,18 @@ class PriceService {
 
     /**
      * Fetches prices from all configured adapters and saves them to storage.
+     * @param {string} zipCodeOverride - Override ZIP code from config
+     * @param {number} amountOverride - Override amount from config
      * @returns {Promise<Object>} Summary of operations { success: [], failed: [] }
      */
-    async fetchAndSavePrices() {
+    async fetchAndSavePrices(zipCodeOverride = null, amountOverride = null) {
         const results = {
             success: [],
             failed: []
         };
 
-        const zipCode = config.ZIP_CODE;
-        const amount = config.AMOUNT;
+        const zipCode = zipCodeOverride || config.ZIP_CODE;
+        const amount = amountOverride || config.AMOUNT;
 
         logger.info(`Starting price fetch for Zip: ${zipCode}, Amount: ${amount}L`);
 

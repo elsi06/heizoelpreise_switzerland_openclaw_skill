@@ -117,5 +117,11 @@ module.exports = {
     '8405': 'Winterthur',
     '8406': 'Winterthur',
     '8408': 'Winterthur',
-    '8409': 'Winterthur'
+    '8409': 'Winterthur',
+
+    // Aargau
+    '5400': 'Baden',
+    '5401': 'Baden',
+    '5416': 'Lenzburg',
+    '5600': 'Lenzburg'
 };

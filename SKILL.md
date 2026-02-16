@@ -1,26 +1,53 @@
 ---
 name: heizoelpreise
-description: Tracks heating oil prices from Swiss providers (Coop, Migrol, Agrola) and provides daily trend analysis via Telegram.
+description: Fetches heating oil prices from Swiss providers (Coop, Migrol, Agrola) and displays results via OpenClaw.
+metadata:
+  {
+    "openclaw":
+      {
+        "emoji": "🔥",
+        "requires":
+          {
+            "bins": ["node", "npm", "chromium"],
+          },
+      },
+  }
 ---
 
 # Heating Oil Price Tracker Skill
 
-This skill periodically checks heating oil prices from major Swiss providers and sends a daily summary with trend analysis to a configured Telegram chat.
-
-## Configuration
-
-To use this skill, you need to set the following environment variables in your OpenClaw configuration or a `.env` file within the skill directory:
-
-- `TELEGRAM_BOT_TOKEN`: Your Telegram Bot API token.
-- `TELEGRAM_CHAT_ID`: The chat ID where notifications should be sent.
-- `ZIP_CODE`: The Swiss postal code (PLZ) for price queries (default: 8000).
-- `AMOUNT_LITERS`: The amount of liters for the price query (default: 3000).
-- `CRON_SCHEDULE`: Cron expression for the daily report (default: "0 8 * * *" for 8:00 AM).
+Fetches current heating oil prices from Swiss providers and displays results directly via OpenClaw.
 
 ## Usage
 
-Once installed and configured, the skill will run automatically in the background.
+Frag mich einfach nach den Heizölpreisen:
 
-To manually trigger a check or Report:
-- `npm run check`: Fetches current prices and saves them to the database.
-- `npm run report`: Generates and sends a report based on the latest data.
+```
+!heizoel [PLZ] [Liter]
+```
+
+Beispiele:
+- `!heizoel` → Preise für PLZ 8000 (Standard)
+- `!heizoel 8000` → Preise für PLZ 8000
+- `!heizoel 8000 3000` → Preise für PLZ 8000, 3000 Liter
+
+## Providers
+
+- **Coop** – Supermarkt
+- **Migrol** – Größter Schweizer Brennstoffhändler
+- **Agrola** – Regionaler Anbieter
+
+## Output
+
+Der Skill zeigt:
+- Aktuelle Preise pro Anbieter
+- Preistrend (📈 steigend, 📉 fallend, ➡️ stabil)
+- Differenz zum Vortag
+- Günstigsten Anbieter 🏆
+
+## Manual Run
+
+```bash
+cd ~/.openclaw/skills/heizoelpreise
+node src/openclaw.js 8000 3000
+```
