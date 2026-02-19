@@ -30,6 +30,7 @@ class PriceService {
             success: [],
             failed: []
         };
+        const pendingSuccess = [];
 
         const zipCode = zipCodeOverride || config.ZIP_CODE;
         const amount = amountOverride || config.AMOUNT;
@@ -46,12 +47,12 @@ class PriceService {
                 const priceData = await adapter.fetchPrice(zipCode, amount);
 
                 if (priceData) {
-                    this.storage.savePrice(priceData);
-                    results.success.push({
+                    pendingSuccess.push({
                         provider: adapter.providerName,
-                        price: priceData.price
+                        price: priceData.price,
+                        _priceData: priceData
                     });
-                    logger.info(`Successfully saved price for ${adapter.providerName}`);
+                    logger.info(`Fetched price for ${adapter.providerName}`);
                 }
             } catch (error) {
                 logger.error(`Failed to fetch from ${adapter.providerName}: ${error.message}`);
@@ -60,6 +61,38 @@ class PriceService {
                     error: error.message
                 });
             }
+        }
+
+        // Plausibility check: flag strong outliers vs market median.
+        // Works on CHF/100L equivalent (for configured amount).
+        const toPer100 = (total) => Number(total) / (amount / 100);
+        const ok = pendingSuccess
+            .map(s => ({ ...s, per100: toPer100(s.price) }))
+            .filter(s => Number.isFinite(s.per100));
+
+        let outlierProviders = new Set();
+        if (ok.length >= 3) {
+            const sorted = ok.map(x => x.per100).sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+
+            const outliers = ok.filter(x => Math.abs(x.per100 - median) > 8);
+            for (const o of outliers) {
+                outlierProviders.add(o.provider);
+                logger.warn(`Plausibility filter: ${o.provider} flagged as outlier (${o.per100.toFixed(2)} CHF/100L vs median ${median.toFixed(2)})`);
+                results.failed.push({
+                    provider: o.provider,
+                    error: `Plausibility check failed (${o.per100.toFixed(2)} CHF/100L vs median ${median.toFixed(2)})`
+                });
+            }
+        }
+
+        // Persist only plausible prices
+        for (const s of pendingSuccess) {
+            if (outlierProviders.has(s.provider)) continue;
+            this.storage.savePrice(s._priceData);
+            results.success.push({ provider: s.provider, price: s.price });
+            logger.info(`Successfully saved price for ${s.provider}`);
         }
 
         return results;

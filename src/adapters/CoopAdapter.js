@@ -11,28 +11,8 @@ class CoopAdapter extends BaseAdapter {
     }
 
     async fetchPrice(zipCode, amount) {
-        // Get delivery date (next available date - usually 2 weeks from now)
-        const deliveryDate = this.getDeliveryDate();
-        
-        // Try direct API first (much more reliable)
-        try {
-            const apiPrice = await this.fetchFromApi(zipCode, amount, deliveryDate);
-            if (apiPrice) {
-                // Coop endpoint returns a unit price value. In practice this maps to CHF per 100L.
-                // (e.g. value=105 => 105 CHF/100L)
-                const pricePer100L = Number(apiPrice);
-                if (Number.isFinite(pricePer100L) && pricePer100L > 40 && pricePer100L < 200) {
-                    const totalPrice = pricePer100L * (amount / 100);
-                    logger.info(`Coop API: ${pricePer100L} CHF/100L × ${amount/100} = ${totalPrice} CHF for ${amount}L`);
-                    return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
-                }
-                logger.warn(`Coop API returned implausible unit price (${apiPrice}), fallback to browser`);
-            }
-        } catch (error) {
-            logger.warn(`Direct API failed: ${error.message}, falling back to browser`);
-        }
-        
-        // Fallback: Use browser automation
+        // Coop API has shown inconsistent unit semantics in production.
+        // Use browser-visible price as primary source, API only as last-resort fallback.
         return this.fetchPriceViaBrowser(zipCode, amount);
     }
 
@@ -175,28 +155,27 @@ class CoopAdapter extends BaseAdapter {
             // Wait for price to load
             await new Promise(r => setTimeout(r, 5000));
 
-            // Check for API-captured price
+            // Extract visible website price first (most trustworthy for end-user comparison)
+            const bodyText = await page.evaluate(() => document.body.innerText);
+            const pagePrice = this.extractPriceFromPage(bodyText);
+
+            if (pagePrice) {
+                const totalPrice = pagePrice * (amount / 100);
+                logger.info(`Coop page price: ${pagePrice} CHF/100L × ${amount/100} = ${totalPrice}`);
+                return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
+            }
+
+            // Last resort: API-captured value when page extraction fails.
             if (priceData && priceData.products && priceData.products[0] && priceData.products[0].price) {
-                const pricePer100L = Number(priceData.products[0].price.value);
-                if (Number.isFinite(pricePer100L) && pricePer100L > 40 && pricePer100L < 200) {
-                    const totalPrice = pricePer100L * (amount / 100);
-                    logger.info(`Got price from captured API: ${pricePer100L} CHF/100L × ${amount/100} = ${totalPrice}`);
+                const apiRaw = Number(priceData.products[0].price.value);
+                if (Number.isFinite(apiRaw) && apiRaw > 40 && apiRaw < 200) {
+                    const totalPrice = apiRaw * (amount / 100);
+                    logger.warn(`Coop fallback API price used: ${apiRaw} CHF/100L × ${amount/100} = ${totalPrice}`);
                     return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
                 }
             }
 
-            // Extract from page
-            const bodyText = await page.evaluate(() => document.body.innerText);
-            const price = this.extractPriceFromPage(bodyText);
-            
-            if (price) {
-                // Price from page is interpreted as CHF per 100L
-                const totalPrice = price * (amount / 100);
-                logger.info(`Extracted price from page: ${price} CHF/100L × ${amount/100} = ${totalPrice}`);
-                return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
-            }
-
-            throw new Error('Price extraction failed');
+            throw new Error('Price extraction failed (page + API fallback)');
 
         } catch (error) {
             logger.error(`Error: ${error.message}`);
