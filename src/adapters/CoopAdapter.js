@@ -16,26 +16,17 @@ class CoopAdapter extends BaseAdapter {
         
         // Try direct API first (much more reliable)
         try {
-            const pricePer1000L = await this.fetchFromApi(zipCode, amount, deliveryDate);
-            if (pricePer1000L) {
-                // API returns price per 1000L but the value seems wrong/incomplete
-                // Real price from website is ~88.79 CHF per 100L (not 105 CHF per 1000L)
-                // Let's calculate using the correct price from website
-                // Website shows: 88.79 CHF per 100L = 887.9 CHF per 1000L
-                // But we use the API's pricePer1000L as base if it seems reasonable
-                // Note: The API returns 105 which is wrong - we need to calculate correctly
-                
-                // Correct calculation: price is per 100L on the website
-                // But API returns per 1000L. We need to convert properly.
-                // Current API gives 105 CHF/1000L = 10.5 CHF/100L which is wrong
-                // Website shows ~88.79 CHF/100L
-                
-                // Using fallback calculation based on observed website pricing (~88.79 CHF/100L)
-                const pricePer100L = 88.79; // This is what the website shows
-                const totalPrice = pricePer100L * (amount / 100);
-                
-                logger.info(`Coop price (from website pricing ~88.79 CHF/100L): ${pricePer100L} × ${amount/100} = ${totalPrice} CHF for ${amount}L`);
-                return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
+            const apiPrice = await this.fetchFromApi(zipCode, amount, deliveryDate);
+            if (apiPrice) {
+                // Coop endpoint returns a unit price value. In practice this maps to CHF per 100L.
+                // (e.g. value=105 => 105 CHF/100L)
+                const pricePer100L = Number(apiPrice);
+                if (Number.isFinite(pricePer100L) && pricePer100L > 40 && pricePer100L < 200) {
+                    const totalPrice = pricePer100L * (amount / 100);
+                    logger.info(`Coop API: ${pricePer100L} CHF/100L × ${amount/100} = ${totalPrice} CHF for ${amount}L`);
+                    return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
+                }
+                logger.warn(`Coop API returned implausible unit price (${apiPrice}), fallback to browser`);
             }
         } catch (error) {
             logger.warn(`Direct API failed: ${error.message}, falling back to browser`);
@@ -186,10 +177,10 @@ class CoopAdapter extends BaseAdapter {
 
             // Check for API-captured price
             if (priceData && priceData.products && priceData.products[0] && priceData.products[0].price) {
-                const pricePer1000L = priceData.products[0].price.value;
-                if (pricePer1000L) {
-                    const totalPrice = pricePer1000L * (amount / 1000);
-                    logger.info(`Got price from captured API: ${pricePer1000L} CHF/1000L × ${amount/1000} = ${totalPrice}`);
+                const pricePer100L = Number(priceData.products[0].price.value);
+                if (Number.isFinite(pricePer100L) && pricePer100L > 40 && pricePer100L < 200) {
+                    const totalPrice = pricePer100L * (amount / 100);
+                    logger.info(`Got price from captured API: ${pricePer100L} CHF/100L × ${amount/100} = ${totalPrice}`);
                     return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
                 }
             }
@@ -199,9 +190,9 @@ class CoopAdapter extends BaseAdapter {
             const price = this.extractPriceFromPage(bodyText);
             
             if (price) {
-                // Price from page is typically per 1000L, calculate total
-                const totalPrice = price * (amount / 1000);
-                logger.info(`Extracted price from page: ${price} × ${amount/1000} = ${totalPrice}`);
+                // Price from page is interpreted as CHF per 100L
+                const totalPrice = price * (amount / 100);
+                logger.info(`Extracted price from page: ${price} CHF/100L × ${amount/100} = ${totalPrice}`);
                 return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
             }
 
