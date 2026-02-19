@@ -31,7 +31,30 @@ class AgrolaAdapter extends BaseAdapter {
 
             // Type PLZ with delay to trigger validation
             await page.type('#postalCodeNpaId', zipCode.toString(), { delay: 100 });
-            await new Promise(r => setTimeout(r, 500)); // Wait for validation
+            await new Promise(r => setTimeout(r, 1000)); // Wait for location dropdown to appear
+
+            // Handle location dropdown that appears after PLZ entry (new UI behavior)
+            // The dropdown #postalCodeLocationId appears when multiple locations match the PLZ
+            try {
+                await page.waitForSelector('#postalCodeLocationId', { timeout: 5000 });
+                const locationOptions = await page.evaluate(() => {
+                    const select = document.querySelector('#postalCodeLocationId');
+                    if (select && select.options.length > 1) {
+                        // Select the first non-empty option (index 1, skip "Bitte wählen...")
+                        return Array.from(select.options).map(o => ({ value: o.value, text: o.text }));
+                    }
+                    return null;
+                });
+                if (locationOptions && locationOptions.length > 1) {
+                    // Select first valid location (skip placeholder at index 0)
+                    await page.select('#postalCodeLocationId', locationOptions[1].value);
+                    logger.info(`Agrola: Selected location "${locationOptions[1].text}" for PLZ ${zipCode}`);
+                    await new Promise(r => setTimeout(r, 500)); // Wait for selection to process
+                }
+            } catch (e) {
+                // Location dropdown might not appear for all PLZs - that's OK
+                logger.info(`Agrola: No location dropdown for PLZ ${zipCode}, continuing...`);
+            }
 
             // Type Quantity
             // We need to clear the field first as it defaults to 0
@@ -39,11 +62,8 @@ class AgrolaAdapter extends BaseAdapter {
             await page.type('#quantityId', amount.toString(), { delay: 50 });
             await new Promise(r => setTimeout(r, 500)); // Wait for validation
 
-            // Ensure button is clickable or submit form
-            // await page.click('button[type="submit"]');
-
-            // Try pressing Enter instead, sometimes safer for React forms
-            await page.keyboard.press('Enter');
+            // Click submit button
+            await page.click('button[type="submit"]');
 
             // Wait for results
             // We expect an API call or a UI update. 
