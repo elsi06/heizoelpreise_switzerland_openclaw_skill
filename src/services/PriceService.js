@@ -1,6 +1,8 @@
 const CoopAdapter = require('../adapters/CoopAdapter');
 const MigrolAdapter = require('../adapters/MigrolAdapter');
 const AgrolaAdapter = require('../adapters/AgrolaAdapter');
+const AvianetAdapter = require('../adapters/AvianetAdapter');
+const Heizoel24Adapter = require('../adapters/Heizoel24Adapter');
 const StorageService = require('./StorageService');
 const config = require('../config');
 const logger = require('../utils/logger');
@@ -10,7 +12,9 @@ class PriceService {
         this.adapters = [
             new CoopAdapter(),
             new MigrolAdapter(),
-            new AgrolaAdapter()
+            new AgrolaAdapter(),
+            new AvianetAdapter(),
+            new Heizoel24Adapter()
         ];
         this.storage = new StorageService(config.DB_PATH);
     }
