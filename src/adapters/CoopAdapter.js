@@ -135,34 +135,35 @@ class CoopAdapter extends BaseAdapter {
 
             logger.info(`Form fill result: ${JSON.stringify(formResult)}`);
 
-            // Wait for form processing
-            await new Promise(r => setTimeout(r, 3000));
+            // Wait until zip dropdown appears, then select first match
+            try {
+                await page.waitForSelector('.dropdown-item', { timeout: 10000 });
+                await page.click('.dropdown-item');
+            } catch (e) {
+                // For some ZIPs no explicit dropdown selection may be needed.
+                logger.info('Coop: No explicit ZIP dropdown selection needed');
+            }
 
-            // Look for submit button
-            await page.evaluate(() => {
-                const buttons = document.querySelectorAll('button');
-                for (const btn of buttons) {
-                    const text = btn.textContent?.toLowerCase() || '';
-                    if (text.includes('angebot') || text.includes('berechnen') || text.includes('submit') || text.includes('next')) {
-                        if (!btn.disabled) {
-                            btn.click();
-                            return;
-                        }
-                    }
-                }
-            });
+            // Wait for valid form state (zip no longer pending + submit enabled)
+            await page.waitForFunction(() => {
+                const zip = document.querySelector('#zipCode');
+                const btn = document.querySelector('button.submit');
+                return !!zip && !!btn && /ng-valid/.test(zip.className || '') && btn.disabled === false;
+            }, { timeout: 20000 });
 
-            // Wait for price to load
-            await new Promise(r => setTimeout(r, 5000));
+            await page.click('button.submit');
 
-            // Extract visible website price first (most trustworthy for end-user comparison)
+            // Wait for result area to render with total/price labels
+            await page.waitForFunction(() => {
+                const t = document.body.innerText || '';
+                return t.includes('Preis pro 100 Liter') && t.includes('Total');
+            }, { timeout: 20000 });
+
             const bodyText = await page.evaluate(() => document.body.innerText);
-            const pagePrice = this.extractPriceFromPage(bodyText);
-
-            if (pagePrice) {
-                const totalPrice = pagePrice * (amount / 100);
-                logger.info(`Coop page price: ${pagePrice} CHF/100L × ${amount/100} = ${totalPrice}`);
-                return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
+            const parsed = this.extractDisplayedPrices(bodyText, amount);
+            if (parsed) {
+                logger.info(`Coop page result: ${parsed.per100.toFixed(2)} CHF/100L | Total ${parsed.total.toFixed(2)} CHF`);
+                return this.createPriceObject(parsed.total.toFixed(2), 'CHF', zipCode, amount);
             }
 
             // Last resort: API-captured value when page extraction fails.
@@ -194,19 +195,41 @@ class CoopAdapter extends BaseAdapter {
         return null;
     }
 
-    extractPriceFromPage(text) {
-        const patterns = [
-            /Total\s*CHF\s*([0-9]+[.,][0-9]{2})/,
-            /CHF\s*([0-9]+[.,][0-9]{2})\s*\/[\s]*100/,
-            /([0-9]{2,3}[.,][0-9]{2})\s*CHF/
-        ];
-        for (const p of patterns) {
-            const m = text.match(p);
-            if (m) {
-                const price = parseFloat(m[1].replace(',', '.'));
-                if (price > 50 && price < 200) return price;
-            }
+    parseChfNumber(str) {
+        if (!str) return NaN;
+        // Swiss formatting: 3'673,25
+        const normalized = str.replace(/'/g, '').replace(/\s/g, '').replace(',', '.');
+        return parseFloat(normalized);
+    }
+
+    extractDisplayedPrices(text, amount) {
+        if (!text) return null;
+
+        // Prefer explicit total shown by Coop result panel
+        const totalMatch = text.match(/Total\s*CHF\s*([0-9'.,]+)/i)
+            || text.match(/CHF\s*([0-9'.,]+)\s*\n\s*Total/i)
+            || text.match(/Abladestelle[^\n]*CHF\s*([0-9'.,]+)/i);
+
+        let total = totalMatch ? this.parseChfNumber(totalMatch[1]) : NaN;
+
+        // Optional explicit per100 label from page
+        const per100Match = text.match(/CHF\s*([0-9'.,]+)\s*\n\s*Preis pro 100 Liter/i)
+            || text.match(/Preis pro 100 Liter[^\n]*CHF\s*([0-9'.,]+)/i);
+        let per100 = per100Match ? this.parseChfNumber(per100Match[1]) : NaN;
+
+        if (!Number.isFinite(total) && Number.isFinite(per100)) {
+            total = per100 * (amount / 100);
         }
+
+        if (!Number.isFinite(per100) && Number.isFinite(total)) {
+            per100 = total / (amount / 100);
+        }
+
+        // Plausibility bounds for CH heating oil
+        if (Number.isFinite(total) && Number.isFinite(per100) && per100 >= 60 && per100 <= 150) {
+            return { total, per100 };
+        }
+
         return null;
     }
 }
