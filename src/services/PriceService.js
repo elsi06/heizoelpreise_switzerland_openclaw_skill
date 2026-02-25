@@ -17,6 +17,29 @@ class PriceService {
             new Heizoel24Adapter()
         ];
         this.storage = new StorageService(config.DB_PATH);
+        this.maxAttempts = 2;
+    }
+
+    async fetchWithRetry(adapter, zipCode, amount) {
+        let lastError = null;
+
+        for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+            try {
+                if (attempt > 1) {
+                    logger.info(`${adapter.providerName}: retry ${attempt}/${this.maxAttempts}`);
+                }
+                const priceData = await adapter.fetchPrice(zipCode, amount);
+                return priceData;
+            } catch (error) {
+                lastError = error;
+                logger.error(`${adapter.providerName}: attempt ${attempt} failed: ${error.message}`);
+                if (attempt < this.maxAttempts) {
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+            }
+        }
+
+        throw lastError;
     }
 
     /**
@@ -44,7 +67,7 @@ class PriceService {
         for (const adapter of this.adapters) {
             try {
                 logger.info(`Fetching from ${adapter.providerName}...`);
-                const priceData = await adapter.fetchPrice(zipCode, amount);
+                const priceData = await this.fetchWithRetry(adapter, zipCode, amount);
 
                 if (priceData) {
                     pendingSuccess.push({
@@ -53,6 +76,11 @@ class PriceService {
                         _priceData: priceData
                     });
                     logger.info(`Fetched price for ${adapter.providerName}`);
+                } else {
+                    results.failed.push({
+                        provider: adapter.providerName,
+                        error: 'No price data returned'
+                    });
                 }
             } catch (error) {
                 logger.error(`Failed to fetch from ${adapter.providerName}: ${error.message}`);

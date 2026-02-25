@@ -33,10 +33,10 @@ async function getHeizoelPrices(zipCode = null, amount = null) {
         
         // Trends analysieren
         const trends = priceService.getAllTrends();
-        
-        // Formatiere Ausgabe
-        const output = formatOutput(trends, plz, menge);
-        
+
+        // Formatiere Ausgabe (inkl. fehlende Anbieter)
+        const output = formatOutput(trends, results, plz, menge);
+
         return {
             success: true,
             data: {
@@ -59,49 +59,51 @@ async function getHeizoelPrices(zipCode = null, amount = null) {
 /**
  * Formatiere die Preise für OpenClaw Ausgabe
  */
-function formatOutput(trends, plz, menge) {
+function formatOutput(trends, results, plz, menge) {
     let msg = `🔥 *Heizöl-Preise* 📊\n`;
     msg += `PLZ: ${plz} | Menge: ${menge}L\n\n`;
-    
-    const anbieterList = [];
-    
-    for (const [provider, data] of Object.entries(trends)) {
+
+    const expectedProviders = priceService.adapters.map(a => a.providerName);
+    const successMap = new Map((results.success || []).map(s => [s.provider, s.price]));
+    const failedMap = new Map((results.failed || []).map(f => [f.provider, f.error]));
+    const currentRunRows = [];
+
+    for (const provider of expectedProviders) {
+        const data = trends[provider] || { trend: 'insufficient_data', difference: 0, currentPrice: null };
+        const currentPrice = successMap.has(provider) ? successMap.get(provider) : null;
+
+        if (currentPrice == null) {
+            const reason = failedMap.get(provider) || 'keine Daten';
+            msg += `⚪ *${provider}*: keine Daten (${reason})\n`;
+            continue;
+        }
+
         let icon = '➡️';
         if (data.trend === 'up') icon = '📈';
         if (data.trend === 'down') icon = '📉';
         if (data.trend === 'stable') icon = '➡️';
         if (data.trend === 'insufficient_data') icon = '🆕';
-        
-        const price = data.currentPrice ? `${data.currentPrice.toFixed(2)} CHF` : 'N/A';
-        
+
         let diffText = '';
-        if (data.trend !== 'insufficient_data' && data.difference !== 0) {
+        if (data.trend !== 'insufficient_data' && Number.isFinite(data.difference) && data.difference !== 0) {
             const diff = data.difference > 0 ? `+${data.difference}` : `${data.difference}`;
-            diffText = ` (${diff}%)`;
+            diffText = ` (${diff} CHF)`;
         }
-        
-        anbieterList.push({
-            name: provider,
-            price: price,
-            trend: data.trend,
-            icon: icon,
-            diff: diffText
-        });
-        
-        msg += `${icon} *${provider}*: ${price}${diffText}\n`;
+
+        msg += `${icon} *${provider}*: ${currentPrice.toFixed(2)} CHF${diffText}\n`;
+        currentRunRows.push({ name: provider, price: currentPrice });
     }
-    
-    // Günstigsten finden
-    const valid = anbieterList.filter(a => a.price !== 'N/A');
-    if (valid.length > 0) {
-        const cheapest = valid.reduce((a, b) => {
-            const priceA = parseFloat(a.price);
-            const priceB = parseFloat(b.price);
-            return priceA < priceB ? a : b;
-        });
-        msg += `\n🏆 *Günstigster*: ${cheapest.name} (${cheapest.price})`;
+
+    if (currentRunRows.length > 0) {
+        const cheapest = currentRunRows.reduce((a, b) => (a.price < b.price ? a : b));
+        const highest = currentRunRows.reduce((a, b) => (a.price > b.price ? a : b));
+        const spread = (highest.price - cheapest.price).toFixed(2);
+        msg += `\n🏆 *Günstigster*: ${cheapest.name} (${cheapest.price.toFixed(2)} CHF)`;
+        msg += `\n↔️ *Spanne*: ${spread} CHF`;
+    } else {
+        msg += `\n❌ *Fehler: keine Preisdaten*`;
     }
-    
+
     return msg;
 }
 
