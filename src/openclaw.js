@@ -67,9 +67,9 @@ function formatOutput(trends, results, plz, menge) {
     const successMap = new Map((results.success || []).map(s => [s.provider, s.price]));
     const failedMap = new Map((results.failed || []).map(f => [f.provider, f.error]));
     const currentRunRows = [];
+    const factor = menge / 100;
 
     for (const provider of expectedProviders) {
-        const data = trends[provider] || { trend: 'insufficient_data', difference: 0, currentPrice: null };
         const currentPrice = successMap.has(provider) ? successMap.get(provider) : null;
 
         if (currentPrice == null) {
@@ -78,19 +78,20 @@ function formatOutput(trends, results, plz, menge) {
             continue;
         }
 
-        let icon = '➡️';
-        if (data.trend === 'up') icon = '📈';
-        if (data.trend === 'down') icon = '📉';
-        if (data.trend === 'stable') icon = '➡️';
-        if (data.trend === 'insufficient_data') icon = '🆕';
+        const per100 = currentPrice / factor;
+        const trendN = priceService.storage.getTrendLastN(provider, plz, menge, 10);
 
-        let diffText = '';
-        if (data.trend !== 'insufficient_data' && Number.isFinite(data.difference) && data.difference !== 0) {
-            const diff = data.difference > 0 ? `+${data.difference}` : `${data.difference}`;
-            diffText = ` (${diff} CHF)`;
+        let icon = '➡️';
+        if (trendN.trend === 'up') icon = '📈';
+        if (trendN.trend === 'down') icon = '📉';
+
+        let trendText = 'Trend(10): n/a';
+        if (trendN.count >= 2) {
+            const sign = trendN.deltaTotal > 0 ? '+' : '';
+            trendText = `Trend(10): ${icon} ${sign}${trendN.deltaTotal.toFixed(2)} CHF (${sign}${trendN.deltaPercent.toFixed(2)}%)`;
         }
 
-        msg += `${icon} *${provider}*: ${currentPrice.toFixed(2)} CHF${diffText}\n`;
+        msg += `${icon} *${provider}*: ${currentPrice.toFixed(2)} CHF | ${per100.toFixed(2)} CHF/100L | ${trendText}\n`;
         currentRunRows.push({ name: provider, price: currentPrice });
     }
 
