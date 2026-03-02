@@ -94,35 +94,23 @@ class CoopAdapter extends BaseAdapter {
 
             // Use page.evaluate to interact with Angular form directly
             const formResult = await page.evaluate(async (zip, menge) => {
-                // Find form fields using Angular attributes
-                const inputs = document.querySelectorAll('input');
-                let zipInput = null;
-                let amountInput = null;
-                
-                for (const input of inputs) {
-                    const placeholder = input.placeholder?.toLowerCase() || '';
-                    const name = input.name || '';
-                    const id = input.id || '';
-                    
-                    if (placeholder.includes('plz') || placeholder.includes('post') || name.includes('zip') || id.includes('zip')) {
-                        zipInput = input;
-                    }
-                    if (placeholder.includes('menge') || placeholder.includes('liter') || placeholder.includes('amount') || name.includes('amount') || name.includes('menge')) {
-                        amountInput = input;
-                    }
-                }
+                // Find form fields using Angular attributes or plain IDs if available
+                const zipInput = document.querySelector('#zipCode');
+                const amountInput = document.querySelector('#value'); // Fix: Coop uses #value for amount now
                 
                 // Try to fill inputs
                 if (zipInput) {
                     zipInput.value = zip;
                     zipInput.dispatchEvent(new Event('input', { bubbles: true }));
                     zipInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    zipInput.dispatchEvent(new Event('blur', { bubbles: true }));
                 }
                 
                 if (amountInput) {
                     amountInput.value = menge;
                     amountInput.dispatchEvent(new Event('input', { bubbles: true }));
                     amountInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    amountInput.dispatchEvent(new Event('blur', { bubbles: true }));
                 }
                 
                 return {
@@ -137,27 +125,41 @@ class CoopAdapter extends BaseAdapter {
 
             // Wait until zip dropdown appears, then select first match
             try {
-                await page.waitForSelector('.dropdown-item', { timeout: 10000 });
-                await page.click('.dropdown-item');
+                // Coop sometimes uses .dropdown-menu or similar for autocomplete
+                await page.waitForSelector('.dropdown-item, .autocomplete-result, .typeahead-item, mat-option', { timeout: 15000 });
+                const items = await page.$$('.dropdown-item, .autocomplete-result, .typeahead-item, mat-option');
+                if (items.length > 0) {
+                    await items[0].click();
+                    logger.info('Coop: Selected ZIP from dropdown');
+                }
             } catch (e) {
                 // For some ZIPs no explicit dropdown selection may be needed.
-                logger.info('Coop: No explicit ZIP dropdown selection needed');
+                logger.info('Coop: No explicit ZIP dropdown selection found or needed');
             }
 
             // Wait for valid form state (zip no longer pending + submit enabled)
             await page.waitForFunction(() => {
                 const zip = document.querySelector('#zipCode');
+                const amount = document.querySelector('#value');
                 const btn = document.querySelector('button.submit');
-                return !!zip && !!btn && /ng-valid/.test(zip.className || '') && btn.disabled === false;
-            }, { timeout: 20000 });
+                const isZipValid = zip && (/ng-valid/.test(zip.className || ''));
+                const isAmountValid = amount && (/ng-valid/.test(amount.className || ''));
+                return !!zip && !!amount && !!btn && isZipValid && isAmountValid && btn.disabled === false;
+            }, { timeout: 30000 });
 
-            await page.click('button.submit');
+            const submitBtn = await page.$('button.submit') || await page.$('button[type="submit"]');
+            if (submitBtn) {
+                await submitBtn.click();
+            } else {
+                throw new Error('Submit button not found');
+            }
 
             // Wait for result area to render with total/price labels
             await page.waitForFunction(() => {
-                const t = document.body.innerText || '';
-                return t.includes('Preis pro 100 Liter') && t.includes('Total');
-            }, { timeout: 20000 });
+                const text = document.body.innerText || '';
+                return (text.includes('Preis pro 100 Liter') || text.includes('CHF/100L') || text.includes('Preis pro 100l')) && 
+                       (text.includes('Total') || text.includes('Gesamtbetrag'));
+            }, { timeout: 40000 });
 
             const bodyText = await page.evaluate(() => document.body.innerText);
             const parsed = this.extractDisplayedPrices(bodyText, amount);
