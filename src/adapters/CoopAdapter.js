@@ -168,17 +168,9 @@ class CoopAdapter extends BaseAdapter {
                 return this.createPriceObject(parsed.total.toFixed(2), 'CHF', zipCode, amount);
             }
 
-            // Last resort: API-captured value when page extraction fails.
-            if (priceData && priceData.products && priceData.products[0] && priceData.products[0].price) {
-                const apiRaw = Number(priceData.products[0].price.value);
-                if (Number.isFinite(apiRaw) && apiRaw > 40 && apiRaw < 200) {
-                    const totalPrice = apiRaw * (amount / 100);
-                    logger.warn(`Coop fallback API price used: ${apiRaw} CHF/100L × ${amount/100} = ${totalPrice}`);
-                    return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
-                }
-            }
-
-            throw new Error('Price extraction failed (page + API fallback)');
+            // Log body for debugging if we get here
+            logger.warn(`Coop: page extraction failed. Body snippet: ${bodyText.substring(0, 500)}`);
+            throw new Error('Price extraction failed (page scraping)');
 
         } catch (error) {
             logger.error(`Error: ${error.message}`);
@@ -228,7 +220,7 @@ class CoopAdapter extends BaseAdapter {
         }
 
         // Plausibility bounds for CH heating oil
-        if (Number.isFinite(total) && Number.isFinite(per100) && per100 >= 60 && per100 <= 150) {
+        if (Number.isFinite(total) && Number.isFinite(per100) && per100 >= 60 && per100 <= 250) {
             return { total, per100 };
         }
 
