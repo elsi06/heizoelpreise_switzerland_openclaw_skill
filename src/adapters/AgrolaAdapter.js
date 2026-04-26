@@ -97,22 +97,42 @@ class AgrolaAdapter extends BaseAdapter {
             // je 100 Liter bei 3000 Liter
             // 
             // We look for "CHF" followed by a number.
-            const priceRegex = /CHF\s*([0-9.']+)/;
-            const match = bodyText.match(priceRegex);
+            // Try multiple patterns for Agrola price extraction
+            let pricePer100L = null;
 
-            if (match) {
-                // Clean up format (remove ' just in case, though Agrola seems to use raw dots/numbers usually in this context)
-                let priceStr = match[1].replace(/'/g, '');
-                let pricePer100L = parseFloat(priceStr);
+            // Pattern 1: "CHF 89.70" or "CHF89.70"
+            const m1 = bodyText.match(/CHF\s*([0-9]+[.,][0-9]+)/);
+            if (m1) {
+                const n = parseFloat(m1[1].replace(',', '.').replace(/'/g, ''));
+                if (n >= 60 && n <= 250) pricePer100L = n;
+            }
 
-                // Agrola displays price per 100L directly: "je 100 Liter bei ..."
-                // Calculate total price: price per 100L × (amount / 100)
+            // Pattern 2: "89.70 CHF" or "89,70 CHF"
+            if (!pricePer100L) {
+                const m2 = bodyText.match(/([0-9]+[.,][0-9]+)\s*CHF/);
+                if (m2) {
+                    const n = parseFloat(m2[1].replace(',', '.').replace(/'/g, ''));
+                    if (n >= 60 && n <= 250) pricePer100L = n;
+                }
+            }
+
+            // Pattern 3: price near "100 Liter" or "100l"
+            if (!pricePer100L) {
+                const m3 = bodyText.match(/([0-9]+[.,][0-9]+)[^\n]{0,30}100\s*[Ll]iter/);
+                if (m3) {
+                    const n = parseFloat(m3[1].replace(',', '.'));
+                    if (n >= 60 && n <= 250) pricePer100L = n;
+                }
+            }
+
+            if (pricePer100L) {
                 const totalPrice = pricePer100L * (amount / 100);
                 logger.info(`Agrola: ${pricePer100L} CHF/100L × ${amount/100} = ${totalPrice} CHF for ${amount}L`);
-
                 return this.createPriceObject(totalPrice.toFixed(2), 'CHF', zipCode, amount);
             }
 
+            // Log snippet for debugging
+            logger.warn(`Agrola: No price found. Body snippet: ${bodyText.substring(0, 800)}`);
             throw new Error('Price not found in page content (Agrola)');
 
         } catch (error) {

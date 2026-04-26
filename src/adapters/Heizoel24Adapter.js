@@ -4,7 +4,7 @@ const logger = require('../utils/logger');
 class Heizoel24Adapter extends BaseAdapter {
     constructor() {
         super('Heizoel24 (CH Durchschnitt)');
-        this.url = 'https://www.heizoel24.ch/heizölpreise';
+        this.url = 'https://www.heizoel24.ch/heizoelpreise';
     }
 
     async fetchPrice(zipCode, amount) {
@@ -22,43 +22,38 @@ class Heizoel24Adapter extends BaseAdapter {
 
             const html = await res.text();
 
-            // Prefer explicit "CHF/100l" values and filter to plausible range.
-            const priceCandidates = [];
-            for (const rx of [
-                /([0-9]{2,3}[\.,][0-9]{1,2})\s*CHF\s*\/\s*100\s*l/gi,
-                /([0-9]{2,3}[\.,][0-9]{1,2})\s*Fr\.?\s*\/\s*100\s*l/gi
-            ]) {
-                for (const m of html.matchAll(rx)) {
-                    if (m && m[1]) {
-                        const n = parseFloat(m[1].replace(',', '.'));
-                        // Swiss heating oil price per 100L is usually in ~60-150 CHF range.
-                        if (!Number.isNaN(n) && n >= 60 && n <= 150) {
-                            priceCandidates.push(n);
-                        }
-                    }
+            // Primary: "149,93 CHF pro 100 Liter" pattern in text paragraph
+            // heizoel24.ch renders this in a descriptive paragraph about current average price
+            let pricePer100L = null;
+
+            const primaryMatch = html.match(/([0-9]{2,3}[,\.][0-9]{1,2})\s*CHF\s*pro\s*100\s*Liter/i);
+            if (primaryMatch) {
+                const n = parseFloat(primaryMatch[1].replace(',', '.'));
+                if (!Number.isNaN(n) && n >= 60 && n <= 250) {
+                    pricePer100L = n;
+                    logger.info(`Heizoel24: Found price via "CHF pro 100 Liter" pattern: ${pricePer100L}`);
                 }
             }
 
-            let pricePer100L = priceCandidates.length ? priceCandidates[0] : null;
-
-            // Fallback around keywords if no explicit unit hit was found.
+            // Fallback: explicit CHF/100l or CHF/100L unit inline
             if (!pricePer100L) {
                 for (const rx of [
-                    /Schweiz(?:[^0-9]{0,80})([0-9]{2,3}[\.,][0-9]{1,2})/i,
-                    /Durchschnitt(?:[^0-9]{0,80})([0-9]{2,3}[\.,][0-9]{1,2})/i
+                    /([0-9]{2,3}[,\.][0-9]{1,2})\s*CHF\s*\/\s*100\s*l/gi,
+                    /([0-9]{2,3}[,\.][0-9]{1,2})\s*Fr\.?\s*\/\s*100\s*l/gi
                 ]) {
-                    const m = html.match(rx);
-                    if (m && m[1]) {
+                    for (const m of html.matchAll(rx)) {
                         const n = parseFloat(m[1].replace(',', '.'));
-                        if (!Number.isNaN(n) && n >= 60 && n <= 150) {
+                        if (!Number.isNaN(n) && n >= 60 && n <= 250) {
                             pricePer100L = n;
+                            logger.info(`Heizoel24: Found price via unit pattern: ${pricePer100L}`);
                             break;
                         }
                     }
+                    if (pricePer100L) break;
                 }
             }
 
-            if (!pricePer100L || Number.isNaN(pricePer100L)) {
+            if (!pricePer100L) {
                 throw new Error('CH-Durchschnittspreis auf heizoel24.ch nicht gefunden');
             }
 

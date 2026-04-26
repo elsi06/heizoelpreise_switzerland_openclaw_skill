@@ -104,7 +104,7 @@ class PriceService {
             const mid = Math.floor(sorted.length / 2);
             const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 
-            const outliers = ok.filter(x => Math.abs(x.per100 - median) > 8);
+            const outliers = ok.filter(x => Math.abs(x.per100 - median) > 15);
             for (const o of outliers) {
                 outlierProviders.add(o.provider);
                 logger.warn(`Plausibility filter: ${o.provider} flagged as outlier (${o.per100.toFixed(2)} CHF/100L vs median ${median.toFixed(2)})`);
